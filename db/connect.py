@@ -1,6 +1,5 @@
 import sqlite3
 
-
 class AuctionDatabase:
     def __init__(self, db_file):
         self.connection = sqlite3.connect(db_file)
