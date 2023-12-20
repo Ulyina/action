@@ -1,124 +1,67 @@
-from PyQt6.QtWidgets import QWidget, QLabel, QPushButton, QVBoxLayout, QLineEdit, QMessageBox, \
-    QMainWindow, QListWidget, QDialog, QInputDialog, QDialogButtonBox
+import sys
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QComboBox, QMessageBox, \
+    QListWidget, QListWidgetItem, QInputDialog
+from PyQt5.QtCore import Qt, QTimer
+from sqlalchemy import create_engine, Column, String, Integer, Enum, Float
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+from bd.connect import Lot, session
 
 
-class AuctioneerWindow(QMainWindow):
-    def __init__(self, parent, database):
-        super().__init__(parent)
-        self.setWindowTitle('Интерфейс аукционера')
-        self.setGeometry(100, 100, 600, 400)
+class AuctioneerWindow(QWidget):
+    def __init__(self, username):
+        super().__init__()
+        self.username = username
+        self.init_ui()
 
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
+    def init_ui(self):
+        self.setWindowTitle(f'Привет, аукционер {self.username}')
+        self.setGeometry(200, 200, 800, 400)
 
-        self.parent = parent
-        self.db = database
+        layout = QVBoxLayout()
 
-        main_layout = QVBoxLayout()
+        self.name_label = QLabel('Название лота:')
+        self.name_input = QLineEdit(self)
 
-        # Создаем QDialog для отображения товаров
-        self.item_dialog = QDialog(self)
-        self.item_dialog.setWindowTitle('Товары аукционера')
-        self.item_dialog.setGeometry(200, 200, 400, 300)
+        self.description_label = QLabel('Описание лота:')
+        self.description_input = QLineEdit(self)
 
-        item_dialog_layout = QVBoxLayout()
-        self.item_list_dialog = QListWidget()
-        item_dialog_layout.addWidget(self.item_list_dialog)
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
-        button_box.accepted.connect(self.item_dialog.accept)
-        item_dialog_layout.addWidget(button_box)
-        self.item_dialog.setLayout(item_dialog_layout)
+        self.min_price_label = QLabel('Минимальная цена:')
+        self.min_price_input = QLineEdit(self)
 
-        self.item_list_button = QPushButton('Показать товары')
-        self.item_list_button.clicked.connect(self.show_item_dialog)
-        main_layout.addWidget(self.item_list_button)
+        self.timer_label = QLabel('Таймер (сек):')
+        self.timer_input = QLineEdit(self)
 
-        self.item_list = QListWidget()
-        main_layout.addWidget(self.item_list)
+        self.create_lot_button = QPushButton('Создать лот', self)
 
-        item_info_layout = QVBoxLayout()
+        layout.addWidget(self.name_label)
+        layout.addWidget(self.name_input)
+        layout.addWidget(self.description_label)
+        layout.addWidget(self.description_input)
+        layout.addWidget(self.min_price_label)
+        layout.addWidget(self.min_price_input)
+        layout.addWidget(self.timer_label)
+        layout.addWidget(self.timer_input)
+        layout.addWidget(self.create_lot_button)
 
-        self.item_name_label = QLabel('Наименование товара:')
-        item_info_layout.addWidget(self.item_name_label)
+        self.create_lot_button.clicked.connect(self.create_lot)
 
-        self.item_name_input = QLineEdit()
-        item_info_layout.addWidget(self.item_name_input)
+        self.setLayout(layout)
 
-        self.start_bid_label = QLabel('Начальная цена:')
-        item_info_layout.addWidget(self.start_bid_label)
+    def create_lot(self):
+        name = self.name_input.text()
+        description = self.description_input.text()
+        min_price = float(self.min_price_input.text())
+        timer_seconds = int(self.timer_input.text())
 
-        self.start_bid_input = QLineEdit()
-        item_info_layout.addWidget(self.start_bid_input)
+        new_lot = Lot(name=name, description=description, min_price=min_price, timer_seconds=timer_seconds)
+        new_lot.timer = QTimer()
+        new_lot.timer.timeout.connect(new_lot.update_timer)
+        new_lot.timer.start(1000)
+        session.add(new_lot)
+        session.commit()
 
-        self.add_item_button = QPushButton('Добавить товар')
-        self.add_item_button.clicked.connect(self.add_item)
-        item_info_layout.addWidget(self.add_item_button)
+        QMessageBox.information(self, 'Успешное создание лота', 'Лот успешно создан.')
 
-        main_layout.addLayout(item_info_layout)
-
-        self.central_widget.setLayout(main_layout)
-
-    def show_item_dialog(self):
-        # Получаем товары аукционера из базы данных и обновляем список товаров в диалоге
-        items = self.db.get_auctioneer_items(self.parent.logged_in_user_login)
-        self.item_list_dialog.clear()
-        self.item_list_dialog.addItems(items)
-        result = self.item_dialog.exec()
-
-        if result == QDialog.DialogCode.Accepted:
-            selected_item = self.item_list_dialog.currentItem()
-            if selected_item:
-                item_id = selected_item.data(0)
-                self.show_edit_delete_dialog(item_id)
-
-    def show_edit_delete_dialog(self, item_id):
-        edit_delete_dialog = QDialog(self)
-        edit_delete_dialog.setWindowTitle('Редактирование/Удаление товара')
-        edit_delete_dialog.setGeometry(200, 200, 300, 150)
-
-        edit_delete_layout = QVBoxLayout()
-
-        edit_button = QPushButton('Редактировать')
-        edit_button.clicked.connect(lambda: self.edit_item(item_id))
-        edit_delete_layout.addWidget(edit_button)
-
-        delete_button = QPushButton('Удалить')
-        delete_button.clicked.connect(lambda: self.delete_item(item_id))
-        edit_delete_layout.addWidget(delete_button)
-
-        edit_delete_dialog.setLayout(edit_delete_layout)
-        edit_delete_dialog.exec()
-
-    def edit_item(self, item_id):
-        new_name, ok_name = QInputDialog.getText(self, 'Редактировать товар', 'Введите новое наименование:')
-        new_start_bid, ok_start_bid = QInputDialog.getDouble(self, 'Редактировать товар',
-                                                             'Введите новую начальную цену:')
-
-        if ok_name and ok_start_bid:
-            self.db.cursor.execute('UPDATE items SET item_name=?, start_bid=? WHERE id=?',
-                                   (new_name, new_start_bid, item_id))
-            self.db.connection.commit()
-            self.show_item_dialog()
-
-    def delete_item(self, item_id):
-        reply = QMessageBox.question(self, 'Удаление товара', 'Вы уверены, что хотите удалить этот товар?',
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-
-        if reply == QMessageBox.StandardButton.Yes:
-            self.db.cursor.execute('DELETE FROM items WHERE id=?', (item_id,))
-            self.db.connection.commit()
-            self.show_item_dialog()
-
-    def add_item(self):
-        item_name = self.item_name_input.text()
-        start_bid = self.start_bid_input.text()
-
-        if item_name and start_bid:
-            auctioneer_id = self.db.get_user_id(self.parent.logged_in_user_login)  # Получение ID аукционера
-            self.db.add_item(auctioneer_id, item_name, start_bid)
-            self.item_list.addItem(f'{item_name} - Начальная цена: {start_bid}')
-            self.item_name_input.clear()
-            self.start_bid_input.clear()
-            self.show_item_dialog()  # Используем show_item_dialog вместо show_auctioneer_items
-        else:
-            QMessageBox.critical(self, 'Ошибка', 'Пожалуйста, введите наименование товара и начальную цену')
+        print(f'Лот создан: {name}, {description}, Минимальная цена: {min_price}, Таймер: {timer_seconds} сек')
